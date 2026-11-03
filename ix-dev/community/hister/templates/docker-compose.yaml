@@ -1,0 +1,78 @@
+{% set tpl = ix_lib.base.render.Render(values) %}
+
+{% set c1 = tpl.add_container(values.consts.hister_container_name, "image") %}
+{% set perm_container = tpl.deps.perms(values.consts.perms_container_name) %}
+{% set perms_config = {"uid": values.run_as.user, "gid": values.run_as.group, "mode": "check"} %}
+
+{% do c1.set_user(values.run_as.user, values.run_as.group) %}
+{% do c1.healthcheck.set_test("wget", {"port": values.consts.internal_web_port, "path": "/health", "spider": false}) %}
+
+{% do c1.environment.add_env("HISTER_DATA_DIR", values.consts.data_path) %}
+{% do c1.environment.add_env("HISTER__SERVER__ADDRESS", "0.0.0.0:%d"|format(values.consts.internal_web_port)) %}
+{% do c1.environment.add_env("HISTER__SERVER__BASE_URL", values.hister.base_url) %}
+{% do c1.environment.add_env("HISTER__APP__ACCESS_TOKEN", values.hister.access_token) %}
+{% do c1.environment.add_env("HISTER__APP__TITLE", values.hister.title) %}
+{% do c1.environment.add_env("HISTER__APP__SUBTITLE", values.hister.subtitle) %}
+{% do c1.environment.add_env("HISTER__APP__DISABLE_PREVIEWS", values.hister.disable_previews) %}
+{% do c1.environment.add_user_envs(values.hister.additional_envs) %}
+
+{% do c1.add_port(values.network.web_port, {"container_port": values.consts.internal_web_port}) %}
+
+{% do c1.add_storage(values.consts.data_path, values.storage.data) %}
+{% do perm_container.add_or_skip_action("data", values.storage.data, perms_config) %}
+
+{% for store in values.storage.additional_storage %}
+  {% do c1.add_storage(store.mount_path, store) %}
+  {% if not store.read_only %}
+    {% do perm_container.add_or_skip_action(store.mount_path, store, perms_config) %}
+  {% endif %}
+{% endfor %}
+
+{% if values.hister.index_directories %}
+  {% set cfg = ["indexer:", "  directories:"] %}
+  {% for d in values.hister.index_directories %}
+    {% do cfg.append("    - path: %s"|format(d.path | tojson)) %}
+    {% if d.label %}
+      {% do cfg.append("      label: %s"|format(d.label | tojson)) %}
+    {% endif %}
+    {% if d.filetypes %}
+      {% do cfg.append("      filetypes:") %}
+      {% for filetype in d.filetypes %}
+        {% do cfg.append("        - %s"|format(filetype | tojson)) %}
+      {% endfor %}
+    {% endif %}
+    {% if d.patterns %}
+      {% do cfg.append("      patterns:") %}
+      {% for pattern in d.patterns %}
+        {% do cfg.append("        - %s"|format(pattern | tojson)) %}
+      {% endfor %}
+    {% endif %}
+    {% if d.excludes %}
+      {% do cfg.append("      excludes:") %}
+      {% for exclude in d.excludes %}
+        {% do cfg.append("        - %s"|format(exclude | tojson)) %}
+      {% endfor %}
+    {% endif %}
+    {% if d.include_hidden %}
+      {% do cfg.append("      include_hidden: true") %}
+    {% endif %}
+    {% if d.delete_on_remove %}
+      {% do cfg.append("      delete_on_remove: true") %}
+    {% endif %}
+  {% endfor %}
+  {% do c1.configs.add("hister_config", cfg | join("\n"), values.consts.config_path, "0444") %}
+  {% do c1.environment.add_env("HISTER_CONFIG", values.consts.config_path) %}
+  {% do tpl.notes.add_info("Hister's main configuration is generated from the Directories to Index list. Use Additional Environment Variables for other settings.") %}
+{% endif %}
+
+{% do tpl.notes.add_info("To index local files, mount the directories under Additional Storage and add their container paths under Directories to Index.") %}
+{% do tpl.notes.add_info("Use HTTPS through a reverse proxy when exposing Hister outside your local network.") %}
+
+{% if perm_container.has_actions() %}
+  {% do perm_container.activate() %}
+  {% do c1.depends.add_dependency(values.consts.perms_container_name, "service_completed_successfully") %}
+{% endif %}
+
+{% do tpl.portals.add(values.network.web_port) %}
+
+{{ tpl.render() | tojson }}

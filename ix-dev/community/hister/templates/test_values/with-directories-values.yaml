@@ -1,0 +1,48 @@
+resources:
+  limits:
+    cpus: 2
+    memory: 4096
+
+TZ: America/New_York
+hister:
+  base_url: http://localhost:8080
+  access_token: "0123456789abcdef0123456789abcdef"
+  title: Hister
+  subtitle: Your own search engine
+  disable_previews: true
+  index_directories:
+    - path: /documents
+      label: docs
+      filetypes:
+        - txt
+        - md
+      patterns: []
+      excludes: []
+      include_hidden: false
+      delete_on_remove: false
+  additional_envs: []
+run_as:
+  user: 568
+  group: 568
+network:
+  web_port:
+    bind_mode: published
+    port_number: 8080
+
+ix_volumes:
+  hister_data: /opt/tests/mnt/hister/data
+  hister_documents: /opt/tests/mnt/hister/documents
+
+storage:
+  data:
+    type: ix_volume
+    ix_volume_config:
+      dataset_name: hister_data
+      create_host_path: true
+  additional_storage:
+    - type: ix_volume
+      read_only: true
+      mount_path: /documents
+      ix_volume_config:
+        dataset_name: hister_documents
+        create_host_path: true
